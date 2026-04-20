@@ -473,19 +473,32 @@
 </div>
 
 <script>
-const SB_URL = 'https://wkcnpqlaizbmlohmnulo.supabase.co';
-const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndrY25wcWxhaXpibWxvaG1udWxvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzNDIzMTMsImV4cCI6MjA5MDkxODMxM30.4uGmn-3NM1WT5ULIiMeNtaQLA6W6bIls9-_p6eV9-5E';
+const PB_URL = 'http://127.0.0.1:8090';
 
-const sb = (path, opts = {}) => fetch(`${SB_URL}/rest/v1/${path}`, {
-  headers: {
-    apikey: SB_KEY,
-    Authorization: `Bearer ${SB_KEY}`,
-    'Content-Type': 'application/json',
-    Prefer: 'return=representation',
-    ...opts.headers
-  },
-  ...opts
-}).then(r => r.json());
+const pbList = (col, opts = {}) => {
+  const p = new URLSearchParams({ perPage: '500' });
+  if (opts.filter) p.set('filter', opts.filter);
+  if (opts.sort) p.set('sort', opts.sort);
+  return fetch(`${PB_URL}/api/collections/${col}/records?${p}`)
+    .then(r => r.json()).then(r => r.items || []);
+};
+
+const pbCreate = (col, data) =>
+  fetch(`${PB_URL}/api/collections/${col}/records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(r => r.json());
+
+const pbUpdate = (col, id, data) =>
+  fetch(`${PB_URL}/api/collections/${col}/records/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }).then(r => r.json());
+
+const pbDelete = (col, id) =>
+  fetch(`${PB_URL}/api/collections/${col}/records/${id}`, { method: 'DELETE' });
 
 let categories = [], projects = [], sources = [];
 let currentType = 'expense';
@@ -552,8 +565,7 @@ function setType(type) {
 }
 
 async function loadCategories() {
-  categories = await sb('categories?order=name');
-  if (!Array.isArray(categories)) categories = [];
+  categories = await pbList('categories', { sort: 'name' });
   ['new-category', 'bud-cat'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
@@ -568,8 +580,7 @@ async function loadCategories() {
 }
 
 async function loadSources() {
-  sources = await sb('income_sources?order=name');
-  if (!Array.isArray(sources)) sources = [];
+  sources = await pbList('income_sources', { sort: 'name' });
   const sel = document.getElementById('new-source');
   if (!sel) return;
   sel.innerHTML = '<option value="">Sin fuente</option>';
@@ -582,8 +593,7 @@ async function loadSources() {
 }
 
 async function loadProjects() {
-  projects = await sb('projects?order=name');
-  if (!Array.isArray(projects)) projects = [];
+  projects = await pbList('projects', { sort: 'name' });
   const sel = document.getElementById('new-project');
   if (!sel) return;
   sel.innerHTML = '<option value="">Sin proyecto</option>';
@@ -597,12 +607,10 @@ async function loadProjects() {
 
 async function loadResumen() {
   const { y, m, start, end } = rangeOf('resumen-month');
-  const [exps, incs] = await Promise.all([
-    sb(`expenses?date=gte.${start}&date=lte.${end}&order=date.desc`),
-    sb(`incomes?date=gte.${start}&date=lte.${end}&order=date.desc`)
+  const [expenses, incomes] = await Promise.all([
+    pbList('expenses', { filter: `(date>='${start}' && date<='${end}')`, sort: '-date' }),
+    pbList('incomes', { filter: `(date>='${start}' && date<='${end}')`, sort: '-date' })
   ]);
-  const expenses = Array.isArray(exps) ? exps : [];
-  const incomes = Array.isArray(incs) ? incs : [];
 
   const totalExp = expenses.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
   const totalInc = incomes.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
@@ -706,12 +714,10 @@ async function loadResumen() {
 
 async function loadHistorial() {
   const { y, m, start, end } = rangeOf('hist-month');
-  const [exps, incs] = await Promise.all([
-    sb(`expenses?date=gte.${start}&date=lte.${end}&order=date.desc`),
-    sb(`incomes?date=gte.${start}&date=lte.${end}&order=date.desc`)
+  const [expenses, incomes] = await Promise.all([
+    pbList('expenses', { filter: `(date>='${start}' && date<='${end}')`, sort: '-date' }),
+    pbList('incomes', { filter: `(date>='${start}' && date<='${end}')`, sort: '-date' })
   ]);
-  const expenses = Array.isArray(exps) ? exps : [];
-  const incomes = Array.isArray(incs) ? incs : [];
   const el = document.getElementById('historial-list');
 
   if (!expenses.length && !incomes.length) { el.innerHTML = '<div class="empty">Sin movimientos este mes</div>'; return; }
@@ -725,7 +731,7 @@ async function loadHistorial() {
     const src = isInc ? sources.find(s => s.id === e.source_id) : null;
     const color = isInc ? (src ? src.color : '#22c55e') : (cat ? cat.color : '#555');
     const icon = isInc ? '↑' : (cat ? cat.icon : '↓');
-    const table = isInc ? 'incomes' : 'expenses';
+    const col = isInc ? 'incomes' : 'expenses';
     return `<div class="row-item">
       <div class="row-icon" style="background:${color}22;color:${color};font-weight:600;font-size:12px">${icon}</div>
       <div class="row-info">
@@ -734,7 +740,7 @@ async function loadHistorial() {
       </div>
       <div style="display:flex;align-items:center;gap:4px">
         <div class="row-amount" style="color:${isInc ? '#22c55e' : '#f87171'}">${isInc ? '+' : '−'}${fmt(parseFloat(e.amount))}</div>
-        <button class="del-btn" onclick="deleteRecord('${e.id}','${table}')">✕</button>
+        <button class="del-btn" onclick="deleteRecord('${e.id}','${col}')">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -758,11 +764,10 @@ async function loadHistorial() {
 
 async function loadPresupuesto() {
   const { m, y, start, end } = rangeOf('bud-month');
-  const [budgets, expenses] = await Promise.all([
-    sb(`budgets?month=eq.${m}&year=eq.${y}`),
-    sb(`expenses?date=gte.${start}&date=lte.${end}`)
+  const [bl, expenses] = await Promise.all([
+    pbList('budgets', { filter: `(month=${m} && year=${y})` }),
+    pbList('expenses', { filter: `(date>='${start}' && date<='${end}')` })
   ]);
-  const bl = Array.isArray(budgets) ? budgets : [];
   const el2 = document.getElementById('budget-list');
 
   if (!bl.length) {
@@ -771,7 +776,7 @@ async function loadPresupuesto() {
   }
 
   const catTotals = {};
-  (Array.isArray(expenses) ? expenses : []).forEach(e => {
+  expenses.forEach(e => {
     catTotals[e.category_id] = (catTotals[e.category_id] || 0) + parseFloat(e.amount || 0);
   });
 
@@ -807,13 +812,13 @@ async function saveRecord() {
   if (currentType === 'expense') {
     const category_id = document.getElementById('new-category').value || null;
     const project_id = document.getElementById('new-project').value || null;
-    res = await sb('expenses', { method: 'POST', body: JSON.stringify({ amount, description: desc, date, category_id, project_id, notes }) });
+    res = await pbCreate('expenses', { amount, description: desc, date, category_id, project_id, notes });
   } else {
     const source_id = document.getElementById('new-source').value || null;
-    res = await sb('incomes', { method: 'POST', body: JSON.stringify({ amount, description: desc, date, source_id, notes }) });
+    res = await pbCreate('incomes', { amount, description: desc, date, source_id, notes });
   }
   btn.disabled = false;
-  if (Array.isArray(res) && res.length) {
+  if (res?.id) {
     showAlert(currentType === 'expense' ? 'Gasto registrado ✓' : 'Ingreso registrado ✓');
     document.getElementById('new-amount').value = '';
     document.getElementById('new-desc').value = '';
@@ -828,7 +833,7 @@ async function saveCategory() {
   const color = document.getElementById('new-cat-color').value;
   const icon = document.getElementById('new-cat-icon').value.trim() || '📦';
   if (!name) { showAlert('Escribe un nombre', 'error'); return; }
-  await sb('categories', { method: 'POST', body: JSON.stringify({ name, color, icon }) });
+  await pbCreate('categories', { name, color, icon });
   await loadCategories();
   document.getElementById('new-cat-name').value = '';
   showAlert('Categoría creada ✓');
@@ -838,7 +843,7 @@ async function saveSource() {
   const name = document.getElementById('new-src-name').value.trim();
   const color = document.getElementById('new-src-color').value;
   if (!name) { showAlert('Escribe un nombre', 'error'); return; }
-  await sb('income_sources', { method: 'POST', body: JSON.stringify({ name, color }) });
+  await pbCreate('income_sources', { name, color });
   await loadSources();
   document.getElementById('new-src-name').value = '';
   showAlert('Fuente creada ✓');
@@ -849,7 +854,7 @@ async function saveProject() {
   const description = document.getElementById('new-proj-desc').value.trim() || null;
   const color = document.getElementById('new-proj-color').value;
   if (!name) { showAlert('Escribe un nombre', 'error'); return; }
-  await sb('projects', { method: 'POST', body: JSON.stringify({ name, description, color }) });
+  await pbCreate('projects', { name, description, color });
   await loadProjects();
   document.getElementById('new-proj-name').value = '';
   showAlert('Proyecto creado ✓');
@@ -860,27 +865,30 @@ async function saveBudget() {
   const amount = parseFloat(document.getElementById('bud-amount').value);
   const { m, y } = rangeOf('bud-month');
   if (!category_id || !amount) { showAlert('Selecciona categoría y monto', 'error'); return; }
-  await sb('budgets', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify({ category_id, amount, month: m, year: y }) });
+  const existing = await pbList('budgets', { filter: `(category_id='${category_id}' && month=${m} && year=${y})` });
+  if (existing.length) {
+    await pbUpdate('budgets', existing[0].id, { amount });
+  } else {
+    await pbCreate('budgets', { category_id, amount, month: m, year: y });
+  }
   document.getElementById('bud-amount').value = '';
   showAlert('Presupuesto guardado ✓');
   loadPresupuesto();
 }
 
-async function deleteRecord(id, table) {
+async function deleteRecord(id, col) {
   if (!confirm('¿Eliminar este registro?')) return;
-  await sb(`${table}?id=eq.${id}`, { method: 'DELETE' });
+  await pbDelete(col, id);
   showAlert('Registro eliminado');
   loadHistorial();
 }
 
 async function exportCSV() {
   const { start, end, y, m } = rangeOf('hist-month');
-  const [exps, incs] = await Promise.all([
-    sb(`expenses?date=gte.${start}&date=lte.${end}&order=date.desc`),
-    sb(`incomes?date=gte.${start}&date=lte.${end}&order=date.desc`)
+  const [expenses, incomes] = await Promise.all([
+    pbList('expenses', { filter: `(date>='${start}' && date<='${end}')`, sort: '-date' }),
+    pbList('incomes', { filter: `(date>='${start}' && date<='${end}')`, sort: '-date' })
   ]);
-  const expenses = Array.isArray(exps) ? exps : [];
-  const incomes = Array.isArray(incs) ? incs : [];
   if (!expenses.length && !incomes.length) { showAlert('Sin datos para exportar', 'error'); return; }
   const header = 'Tipo,Fecha,Descripción,Monto,Categoría/Fuente,Proyecto,Notas';
   const expRows = expenses.map(e => {
