@@ -343,11 +343,11 @@
   </header>
 
   <nav>
-    <button class="active" onclick="showSection('resumen')">Resumen</button>
-    <button onclick="showSection('nuevo')">Nuevo</button>
-    <button onclick="showSection('historial')">Historial</button>
-    <button onclick="showSection('presupuesto')">Presupuesto</button>
-    <button onclick="showSection('config')">Configurar</button>
+    <button class="active" data-section="resumen" onclick="showSection('resumen')">Resumen</button>
+    <button data-section="nuevo" onclick="showSection('nuevo')">Nuevo</button>
+    <button data-section="historial" onclick="showSection('historial')">Historial</button>
+    <button data-section="presupuesto" onclick="showSection('presupuesto')">Presupuesto</button>
+    <button data-section="config" onclick="showSection('config')">Configurar</button>
   </nav>
 
   <!-- ───── RESUMEN ───── -->
@@ -475,30 +475,45 @@
 <script>
 const PB_URL = 'http://localhost:3000';
 
-const pbList = (col, opts = {}) => {
+const escapeHtml = s => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+const csvField = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
+
+async function pbList(col, opts = {}) {
   const p = new URLSearchParams({ perPage: '500' });
   if (opts.filter) p.set('filter', opts.filter);
   if (opts.sort) p.set('sort', opts.sort);
-  return fetch(`${PB_URL}/api/collections/${col}/records?${p}`)
-    .then(r => r.json()).then(r => r.items || []);
-};
+  const r = await fetch(`${PB_URL}/api/collections/${col}/records?${p}`);
+  if (!r.ok) throw new Error(`Error ${r.status} al cargar ${col}`);
+  return (await r.json()).items || [];
+}
 
-const pbCreate = (col, data) =>
-  fetch(`${PB_URL}/api/collections/${col}/records`, {
+async function pbCreate(col, data) {
+  const r = await fetch(`${PB_URL}/api/collections/${col}/records`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
-  }).then(r => r.json());
+  });
+  if (!r.ok) throw new Error(`Error ${r.status} al crear en ${col}`);
+  return r.json();
+}
 
-const pbUpdate = (col, id, data) =>
-  fetch(`${PB_URL}/api/collections/${col}/records/${id}`, {
+async function pbUpdate(col, id, data) {
+  const r = await fetch(`${PB_URL}/api/collections/${col}/records/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
-  }).then(r => r.json());
+  });
+  if (!r.ok) throw new Error(`Error ${r.status} al actualizar ${col}`);
+  return r.json();
+}
 
-const pbDelete = (col, id) =>
-  fetch(`${PB_URL}/api/collections/${col}/records/${id}`, { method: 'DELETE' });
+async function pbDelete(col, id) {
+  const r = await fetch(`${PB_URL}/api/collections/${col}/records/${id}`, { method: 'DELETE' });
+  if (!r.ok) throw new Error(`Error ${r.status} al eliminar en ${col}`);
+}
 
 let categories = [], projects = [], sources = [];
 let currentType = 'expense';
@@ -544,8 +559,8 @@ function showAlert(msg, type = 'success') {
 
 function showSection(id) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach((b, i) => {
-    b.classList.toggle('active', ['resumen','nuevo','historial','presupuesto','config'][i] === id);
+  document.querySelectorAll('nav button[data-section]').forEach(b => {
+    b.classList.toggle('active', b.dataset.section === id);
   });
   document.getElementById(`section-${id}`).classList.add('active');
   if (id === 'resumen') loadResumen();
@@ -700,12 +715,12 @@ async function loadResumen() {
     const cat = isInc ? null : categories.find(c => c.id === e.category_id);
     const src = isInc ? sources.find(s => s.id === e.source_id) : null;
     const color = isInc ? (src ? src.color : '#22c55e') : (cat ? cat.color : '#555');
-    const icon = isInc ? '↑' : (cat ? cat.icon : '↓');
+    const icon = isInc ? '↑' : (cat ? escapeHtml(cat.icon) : '↓');
     return `<div class="row-item">
       <div class="row-icon" style="background:${color}22;color:${color};font-weight:600;font-size:12px">${icon}</div>
       <div class="row-info">
-        <div class="desc">${e.description}</div>
-        <div class="meta">${isInc ? (src ? src.name : 'Ingreso') : (cat ? cat.name : 'Sin categoría')} · ${e.date}</div>
+        <div class="desc">${escapeHtml(e.description)}</div>
+        <div class="meta">${isInc ? (src ? escapeHtml(src.name) : 'Ingreso') : (cat ? escapeHtml(cat.name) : 'Sin categoría')} · ${escapeHtml(e.date)}</div>
       </div>
       <div class="row-amount" style="color:${isInc ? '#22c55e' : '#f87171'}">${isInc ? '+' : '−'}${fmt(parseFloat(e.amount))}</div>
     </div>`;
@@ -730,17 +745,17 @@ async function loadHistorial() {
     const cat = isInc ? null : categories.find(c => c.id === e.category_id);
     const src = isInc ? sources.find(s => s.id === e.source_id) : null;
     const color = isInc ? (src ? src.color : '#22c55e') : (cat ? cat.color : '#555');
-    const icon = isInc ? '↑' : (cat ? cat.icon : '↓');
+    const icon = isInc ? '↑' : (cat ? escapeHtml(cat.icon) : '↓');
     const col = isInc ? 'incomes' : 'expenses';
     return `<div class="row-item">
       <div class="row-icon" style="background:${color}22;color:${color};font-weight:600;font-size:12px">${icon}</div>
       <div class="row-info">
-        <div class="desc">${e.description}</div>
-        <div class="meta">${isInc ? (src ? src.name : 'Ingreso') : (cat ? cat.name : 'Sin cat.')} · ${e.date}${e.notes ? ' · ' + e.notes.slice(0, 20) : ''}</div>
+        <div class="desc">${escapeHtml(e.description)}</div>
+        <div class="meta">${isInc ? (src ? escapeHtml(src.name) : 'Ingreso') : (cat ? escapeHtml(cat.name) : 'Sin cat.')} · ${escapeHtml(e.date)}${e.notes ? ' · ' + escapeHtml(e.notes.slice(0, 20)) : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
         <div class="row-amount" style="color:${isInc ? '#22c55e' : '#f87171'}">${isInc ? '+' : '−'}${fmt(parseFloat(e.amount))}</div>
-        <button class="del-btn" onclick="deleteRecord('${e.id}','${col}')">✕</button>
+        <button class="del-btn" onclick="deleteRecord('${escapeHtml(e.id)}','${col}')">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -789,7 +804,7 @@ async function loadPresupuesto() {
     const barColor = over ? '#f87171' : pct > 80 ? '#f59e0b' : (cat ? cat.color : '#22c55e');
     html += `<div class="budget-item">
       <div class="budget-header">
-        <span class="bname">${cat ? cat.icon + ' ' + cat.name : 'Categoría'}</span>
+        <span class="bname">${cat ? escapeHtml(cat.icon) + ' ' + escapeHtml(cat.name) : 'Categoría'}</span>
         <span class="bamount" style="color:${over ? '#f87171' : '#888'}">${fmt(spent)} / ${fmt(parseFloat(b.amount))}</span>
       </div>
       <div class="budget-track"><div class="budget-fill" style="width:${pct}%;background:${barColor}"></div></div>
@@ -808,23 +823,26 @@ async function saveRecord() {
   if (!amount || !desc || !date) { showAlert('Completa monto, descripción y fecha', 'error'); return; }
   const btn = document.getElementById('save-btn');
   btn.disabled = true;
-  let res;
-  if (currentType === 'expense') {
-    const category_id = document.getElementById('new-category').value || null;
-    const project_id = document.getElementById('new-project').value || null;
-    res = await pbCreate('expenses', { amount, description: desc, date, category_id, project_id, notes });
-  } else {
-    const source_id = document.getElementById('new-source').value || null;
-    res = await pbCreate('incomes', { amount, description: desc, date, source_id, notes });
-  }
-  btn.disabled = false;
-  if (res?.id) {
-    showAlert(currentType === 'expense' ? 'Gasto registrado ✓' : 'Ingreso registrado ✓');
-    document.getElementById('new-amount').value = '';
-    document.getElementById('new-desc').value = '';
-    document.getElementById('new-notes').value = '';
-  } else {
+  try {
+    let res;
+    if (currentType === 'expense') {
+      const category_id = document.getElementById('new-category').value || null;
+      const project_id = document.getElementById('new-project').value || null;
+      res = await pbCreate('expenses', { amount, description: desc, date, category_id, project_id, notes });
+    } else {
+      const source_id = document.getElementById('new-source').value || null;
+      res = await pbCreate('incomes', { amount, description: desc, date, source_id, notes });
+    }
+    if (res?.id) {
+      showAlert(currentType === 'expense' ? 'Gasto registrado ✓' : 'Ingreso registrado ✓');
+      document.getElementById('new-amount').value = '';
+      document.getElementById('new-desc').value = '';
+      document.getElementById('new-notes').value = '';
+    }
+  } catch (e) {
     showAlert('Error al guardar', 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -833,20 +851,26 @@ async function saveCategory() {
   const color = document.getElementById('new-cat-color').value;
   const icon = document.getElementById('new-cat-icon').value.trim() || '📦';
   if (!name) { showAlert('Escribe un nombre', 'error'); return; }
-  await pbCreate('categories', { name, color, icon });
-  await loadCategories();
-  document.getElementById('new-cat-name').value = '';
-  showAlert('Categoría creada ✓');
+  try {
+    const res = await pbCreate('categories', { name, color, icon });
+    if (!res?.id) throw new Error();
+    await loadCategories();
+    document.getElementById('new-cat-name').value = '';
+    showAlert('Categoría creada ✓');
+  } catch { showAlert('Error al crear categoría', 'error'); }
 }
 
 async function saveSource() {
   const name = document.getElementById('new-src-name').value.trim();
   const color = document.getElementById('new-src-color').value;
   if (!name) { showAlert('Escribe un nombre', 'error'); return; }
-  await pbCreate('income_sources', { name, color });
-  await loadSources();
-  document.getElementById('new-src-name').value = '';
-  showAlert('Fuente creada ✓');
+  try {
+    const res = await pbCreate('income_sources', { name, color });
+    if (!res?.id) throw new Error();
+    await loadSources();
+    document.getElementById('new-src-name').value = '';
+    showAlert('Fuente creada ✓');
+  } catch { showAlert('Error al crear fuente', 'error'); }
 }
 
 async function saveProject() {
@@ -854,10 +878,13 @@ async function saveProject() {
   const description = document.getElementById('new-proj-desc').value.trim() || null;
   const color = document.getElementById('new-proj-color').value;
   if (!name) { showAlert('Escribe un nombre', 'error'); return; }
-  await pbCreate('projects', { name, description, color });
-  await loadProjects();
-  document.getElementById('new-proj-name').value = '';
-  showAlert('Proyecto creado ✓');
+  try {
+    const res = await pbCreate('projects', { name, description, color });
+    if (!res?.id) throw new Error();
+    await loadProjects();
+    document.getElementById('new-proj-name').value = '';
+    showAlert('Proyecto creado ✓');
+  } catch { showAlert('Error al crear proyecto', 'error'); }
 }
 
 async function saveBudget() {
@@ -878,9 +905,11 @@ async function saveBudget() {
 
 async function deleteRecord(id, col) {
   if (!confirm('¿Eliminar este registro?')) return;
-  await pbDelete(col, id);
-  showAlert('Registro eliminado');
-  loadHistorial();
+  try {
+    await pbDelete(col, id);
+    showAlert('Registro eliminado');
+    loadHistorial();
+  } catch { showAlert('Error al eliminar', 'error'); }
 }
 
 async function exportCSV() {
@@ -894,11 +923,11 @@ async function exportCSV() {
   const expRows = expenses.map(e => {
     const cat = categories.find(c => c.id === e.category_id);
     const proj = projects.find(p => p.id === e.project_id);
-    return ['Gasto', e.date, `"${e.description}"`, e.amount, cat ? cat.name : '', proj ? proj.name : '', `"${e.notes || ''}"`].join(',');
+    return ['Gasto', e.date, csvField(e.description), e.amount, csvField(cat ? cat.name : ''), csvField(proj ? proj.name : ''), csvField(e.notes || '')].join(',');
   });
   const incRows = incomes.map(i => {
     const src = sources.find(s => s.id === i.source_id);
-    return ['Ingreso', i.date, `"${i.description}"`, i.amount, src ? src.name : '', '', `"${i.notes || ''}"`].join(',');
+    return ['Ingreso', i.date, csvField(i.description), i.amount, csvField(src ? src.name : ''), '', csvField(i.notes || '')].join(',');
   });
   const csv = '\uFEFF' + [header, ...incRows, ...expRows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
