@@ -1,0 +1,4 @@
+node_modules/
+nudget.db
+*.db-shm
+*.db-wal
